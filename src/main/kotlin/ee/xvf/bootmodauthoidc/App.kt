@@ -3,6 +3,7 @@ package ee.xvf.bootmodauthoidc
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 import org.springframework.context.annotation.Configuration
+import org.springframework.security.access.AccessDeniedException
 import org.springframework.security.authentication.AbstractAuthenticationToken
 import org.springframework.security.authentication.AuthenticationProvider
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder
@@ -14,6 +15,7 @@ import org.springframework.security.config.http.SessionCreationPolicy
 import org.springframework.security.core.Authentication
 import org.springframework.security.core.GrantedAuthority
 import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.security.web.access.AccessDeniedHandler
 import org.springframework.security.web.authentication.preauth.RequestHeaderAuthenticationFilter
 import org.springframework.stereotype.Component
 import org.springframework.web.filter.OncePerRequestFilter
@@ -34,8 +36,15 @@ fun main(args: Array<String>) {
 class SecurityConfig : WebSecurityConfigurerAdapter() {
     override fun configure(http: HttpSecurity) {
         http.authorizeRequests().anyRequest().authenticated()
-        http.sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
         http.addFilterAfter(PreAuthHeaderFilter(), RequestHeaderAuthenticationFilter::class.java)
+
+        http.exceptionHandling()
+                .accessDeniedHandler(EasyAccessDeniedHandler())
+                .authenticationEntryPoint { _, response, _ ->
+                    response.sendError(HttpServletResponse.SC_UNAUTHORIZED)
+                }
+
+        http.sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
         http.csrf().disable()
     }
 
@@ -108,6 +117,13 @@ class EasyAuthProvider : AuthenticationProvider {
     }
 
     override fun supports(authentication: Class<*>?): Boolean =
-        EasyUser::class.java.isAssignableFrom(authentication)
+            EasyUser::class.java.isAssignableFrom(authentication)
 
+}
+
+
+class EasyAccessDeniedHandler : AccessDeniedHandler {
+    override fun handle(request: HttpServletRequest?, response: HttpServletResponse, accessDeniedException: AccessDeniedException?) {
+        response.sendError(HttpServletResponse.SC_FORBIDDEN)
+    }
 }
