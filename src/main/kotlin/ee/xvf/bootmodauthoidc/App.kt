@@ -35,7 +35,10 @@ fun main(args: Array<String>) {
 @EnableGlobalMethodSecurity(securedEnabled = true)
 class SecurityConfig : WebSecurityConfigurerAdapter() {
     override fun configure(http: HttpSecurity) {
-        http.authorizeRequests().anyRequest().authenticated()
+        http.authorizeRequests()
+                .antMatchers("/noauth").permitAll()
+                .anyRequest().authenticated()
+
         http.addFilterAfter(PreAuthHeaderFilter(), RequestHeaderAuthenticationFilter::class.java)
 
         http.exceptionHandling()
@@ -55,25 +58,26 @@ class SecurityConfig : WebSecurityConfigurerAdapter() {
 
 class PreAuthHeaderFilter : OncePerRequestFilter() {
     override fun doFilterInternal(request: HttpServletRequest, response: HttpServletResponse, filterChain: FilterChain) {
-        val email = getRequiredHeader("oidc_claim_email", request)
-        val givenName = getRequiredHeader("oidc_claim_given_name", request)
-        val familyName = getRequiredHeader("oidc_claim_family_name", request)
+        val email = getOptionalHeader("oidc_claim_email", request)
+        val givenName = getOptionalHeader("oidc_claim_given_name", request)
+        val familyName = getOptionalHeader("oidc_claim_family_name", request)
+        val roles = getOptionalHeader("oidc_claim_easy_role", request)
 
-        val roles = mapHeaderToRoles(getRequiredHeader("oidc_claim_easy_role", request))
+        if (email != null
+                && givenName != null
+                && familyName != null
+                && roles != null) {
 
-        val user = EasyUser(email, givenName, familyName, roles)
-        SecurityContextHolder.getContext().authentication = user
+            val user = EasyUser(email, givenName, familyName, mapHeaderToRoles(roles))
+            SecurityContextHolder.getContext().authentication = user
+        }
 
         filterChain.doFilter(request, response)
     }
 
-    private fun getRequiredHeader(headerName: String, request: HttpServletRequest): String {
+    private fun getOptionalHeader(headerName: String, request: HttpServletRequest): String? {
         val headerValue: String? = request.getHeader(headerName)
-        if (headerValue.isNullOrBlank()) {
-            throw RuntimeException("$headerName header not found")
-        } else {
-            return headerValue
-        }
+        return if (headerValue.isNullOrBlank()) null else headerValue
     }
 
     private fun mapHeaderToRoles(rolesHeader: String): Set<EasyGrantedAuthority> =
@@ -112,13 +116,12 @@ enum class EasyRole(val roleWithPrefix: String) {
 @Component
 class EasyAuthProvider : AuthenticationProvider {
     override fun authenticate(authentication: Authentication?): Authentication? {
-        authentication?.isAuthenticated = true
+        authentication?.isAuthenticated = authentication?.authorities?.isNotEmpty() ?: false
         return authentication
     }
 
     override fun supports(authentication: Class<*>?): Boolean =
             EasyUser::class.java.isAssignableFrom(authentication)
-
 }
 
 
